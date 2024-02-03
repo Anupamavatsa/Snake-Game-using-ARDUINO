@@ -1,0 +1,326 @@
+//C++ code for designing a snake game on 16*2 LCD
+#include <LiquidCrystal.h>
+
+#define BUTTON A0
+
+#define RS     2
+#define ENABLE 3
+#define D4     4
+#define D5     5
+#define D6     6
+#define D7     7
+
+#define BUTTON A0
+
+#define UP_BUTTON_LOWER_BOUND      1
+#define UP_BUTTON_UPPER_BOUND    512
+
+#define DOWN_BUTTON_LOWER_BOUND  513
+#define DOWN_BUTTON_UPPER_BOUND  614
+
+#define LEFT_BUTTON_LOWER_BOUND  615
+#define LEFT_BUTTON_UPPER_BOUND  682
+
+#define RIGHT_BUTTON_LOWER_BOUND 683
+#define RIGHT_BUTTON_UPPER_BOUND 731
+
+enum ButtonType { up, down, left, right, none };
+
+LiquidCrystal lcd(RS, ENABLE, D4, D5, D6, D7);
+unsigned long time, timeNow;
+int gameSpeed;
+boolean skip, gameOver;
+int olddir;
+int selectedLevel,levels;
+ 
+int adc_key_val[5] ={50, 200, 400, 600, 800 };
+int NUM_KEYS = 5;
+int adc_key_in;
+int key=-1;
+int oldkey=-1;
+ 
+boolean x[16][80];
+byte myChar[8];
+byte nullChar[8] = { 0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0 };
+boolean special;
+
+int btn;
+ 
+struct partdef
+{
+  int row,column,dir;
+  struct partdef *next;
+};
+typedef partdef part;
+ 
+part *head, *tail;
+int i,j,collected = 0 ;
+long pc,pr;
+
+void newPoint()
+{
+ 
+  part *p;
+  p = tail;
+  boolean newp = true;
+  while (newp)
+  {
+    pr = random(16);
+    pc = random(80);
+    newp = false;
+    while (p->next != NULL && !newp)
+    {
+      if (p->row == pr && p->column == pc) newp = true;
+      p = p->next;
+    }
+  }
+ 
+  if (collected < 13)
+  {
+    growSnake();
+  }
+}
+
+void drawMatrix()
+{
+  int cc=0;
+  if (!gameOver)
+  {
+  x[pr][pc] = true;
+
+  for(int r=0;r<2;r++)
+  {
+    for(int c=0;c<16;c++)
+    {
+      special = false;
+      for(int i=0;i<8;i++)
+      {
+        byte b=B00000;
+        if (x[r*8+i][c*5+0]) {b+=B10000; special = true;}
+        if (x[r*8+i][c*5+1]) {b+=B01000; special = true;}
+        if (x[r*8+i][c*5+2]) {b+=B00100; special = true;}
+        if (x[r*8+i][c*5+3]) {b+=B00010; special = true;}
+        if (x[r*8+i][c*5+4]) {b+=B00001; special = true;}
+        myChar[i] = b;
+      }
+      
+      if (special)
+      {
+        lcd.createChar(cc, myChar);
+        lcd.setCursor(c,r);
+        lcd.write(byte(cc));
+        cc++;
+      }
+      
+      else
+      {
+        lcd.setCursor(c,r);
+        lcd.print(' ');
+      }
+    }
+  }
+  }
+}
+ 
+void freeList()
+{
+  part *p,*q;
+  p = tail;
+  while (p!=NULL)
+  {
+    q = p;
+    p = p->next;
+    free(q);
+  }
+  head = tail = NULL;
+}
+ 
+void growSnake()
+{
+  part *p;
+  p = (part*)malloc(sizeof(part));
+  p->row = tail->row;
+  p->column = tail->column;
+  p->dir = tail->dir;
+  p->next = tail;
+  tail = p;
+}
+ 
+void moveHead()
+{
+  switch(head->dir) 
+  {
+    case up: head->row--; break;
+    case down: head->row++; break;
+    case right: head->column++; break;
+    case left: head->column--; break;
+    default : break;
+  }
+  if (head->column >= 80) head->column = 0;
+  if (head->column < 0) head->column = 79;
+  if (head->row >= 16) head->row = 0;
+  if (head->row < 0) head->row = 15;
+ 
+  part *p;
+  p = tail;
+  while (p != head && !gameOver) 
+  {
+    if (p->row == head->row && p->column == head->column) gameOver = true;
+    p = p->next;
+  }
+ 
+  x[head->row][head->column] = true;
+ 
+  if (head->row == pr && head->column == pc) 
+  {
+    collected++;
+    if (gameSpeed < 25) gameSpeed+=3;
+    newPoint();
+  }
+}
+ 
+void moveAll()
+{
+  part *p;
+  p = tail;
+  x[p->row][p->column] = false;
+  while (p->next != NULL)
+  {
+    p->row = p->next->row;
+    p->column = p->next->column;
+    p->dir = p->next->dir;
+    p = p->next;
+  }
+  moveHead();
+}
+ 
+void createSnake(int n) // n = size of snake
+{
+  for (i=0;i<16;i++)
+    for (j=0;j<80;j++)
+      x[i][j] = false;
+         
+  part *p, *q;
+  tail = (part*)malloc(sizeof(part));
+  tail->row = 7;
+  tail->column = 39 + n/2;
+  tail->dir = left;
+  q = tail;
+  x[tail->row][tail->column] = true;
+  for (i = 0; i < n-1; i++) 
+  {
+    p = (part*)malloc(sizeof(part));
+    p->row = q->row;
+    p->column = q->column - 1;
+    x[p->row][p->column] = true;
+    p->dir = q->dir;
+    q->next = p;
+    q = p;
+  }
+  if (n>1)
+  {
+    p->next = NULL;
+    head  = p;
+  }
+  else
+  {
+    tail->next = NULL;
+    head = tail;
+  }
+}
+ 
+void startF()
+{
+  gameOver = false;
+  freeList();
+  createSnake(3);
+  countDown(3);
+}
+
+int getButtonPress(int buttonPin)
+{
+	
+  delay(50);
+  
+  int sensorValue = analogRead(buttonPin);
+
+  ButtonType btn = none;
+
+  if( sensorValue >= UP_BUTTON_LOWER_BOUND && sensorValue <= UP_BUTTON_UPPER_BOUND ){
+    btn = up;
+  }
+
+  else if( sensorValue >= DOWN_BUTTON_LOWER_BOUND && sensorValue <= DOWN_BUTTON_UPPER_BOUND )
+  {
+    btn = down;
+  }
+
+  else if( sensorValue >= LEFT_BUTTON_LOWER_BOUND && sensorValue <= LEFT_BUTTON_UPPER_BOUND )
+  {
+    btn = left;
+  }
+
+  else if( sensorValue >= RIGHT_BUTTON_LOWER_BOUND && sensorValue <= RIGHT_BUTTON_UPPER_BOUND )
+  {
+    btn = right;
+  }
+
+  return btn;
+}
+
+void setup()
+{
+  
+  gameSpeed = 3;
+  lcd.begin(16, 2);
+  startF();
+}
+
+void countDown(int time){
+  for(int i = time; i >0; i--){
+    lcd.setCursor(7,0);
+    lcd.print(i);
+    delay(1000);
+  }
+  lcd.clear();
+}
+
+void resetGame(){
+ 	delay(3000);
+  	lcd.clear();
+  	lcd.home();
+  	lcd.print("Score: ");
+  	lcd.setCursor(7,0);
+  	lcd.print(collected);
+    delay(3000);
+  	lcd.clear();
+    startF();
+
+  
+}
+
+void loop()
+{
+
+  btn = getButtonPress( BUTTON );
+  if( btn != none )
+  {
+    if( btn ==    up && head->dir != down  ) { head ->dir = up;    }
+    if( btn ==  down && head->dir != up    ) { head ->dir = down;  }
+    if( btn == right && head->dir != left  ) { head ->dir = right; }
+    if( btn ==  left && head->dir != right ) { head ->dir = left;  }
+   
+  }
+
+  delay(1000/gameSpeed);
+  moveAll();
+  drawMatrix();
+  
+  if(gameOver){
+    resetGame();
+  }
+  
+     
+}
+ 
+ 
